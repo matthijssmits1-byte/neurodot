@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Neurodot (modular)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_neurodot.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Neurodot (single file)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Neurodot.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

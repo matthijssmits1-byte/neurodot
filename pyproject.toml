@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurodot"
+version = "1.0.0"
+description = "Modular Cellpose-based cell detection and Imaris scene export"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "cellpose==4.2.1.1",
+    "h5py==3.16.0",
+    "numpy==2.5.2",
+    "Pillow==10.4.0",
+    "scipy==1.18.0",
+    "torch==2.5.1",
+]
+
+[project.optional-dependencies]
+video = ["opencv-python>=4.10"]
+build = ["pyinstaller>=6.0"]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+neurodot = "neurodot:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
