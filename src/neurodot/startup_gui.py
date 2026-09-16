@@ -7,7 +7,6 @@ from .config import (
     CELLPOSE_MODEL_PATH,
     configure_windows_app_identity,
     GUI_ACCENT,
-    GUI_BANNER_PATH,
     GUI_BG,
     GUI_BORDER,
     GUI_CONTROL_ACTIVE_BG,
@@ -102,28 +101,39 @@ class StartupWindow:
         content = tk.Frame(outer, bg=GUI_BG)
         content.pack(fill="both", expand=True)
         self.content_frame = content
+        content.grid_columnconfigure(0, weight=1)
 
-        form = tk.Frame(content, bg=GUI_BG)
-        form.grid(row=0, column=0, sticky="nsew")
-
+        header = tk.Frame(content, bg=GUI_BG)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        title_block = tk.Frame(header, bg=GUI_BG)
+        title_block.pack(side="left", anchor="nw", fill="x", expand=True)
         tk.Label(
-            form,
+            title_block,
             text="START A COUNTING JOB",
             bg=GUI_BG,
             fg=GUI_ACCENT,
             font=("Segoe UI Semibold", 13),
-        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 3))
-
+        ).pack(anchor="w", pady=(0, 3))
         tk.Label(
-            form,
+            title_block,
             text="Choose the files and model for this run, then select how to begin.",
             bg=GUI_BG,
             fg=GUI_MUTED_FG,
             font=("Segoe UI", 9),
-        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 17))
+        ).pack(anchor="w")
+
+        form = tk.Frame(content, bg=GUI_BG)
+        form.grid(row=1, column=0, sticky="nsew")
 
         self._path_row(form, 2, "INPUT FOLDER", self.input_var, self._browse_input)
-        self._path_row(form, 4, "OUTPUT FOLDER", self.output_var, self._browse_output)
+        self._path_row(
+            form,
+            4,
+            "OUTPUT FOLDER",
+            self.output_var,
+            self._browse_output,
+            secondary=("Same as input", self._use_input_as_output),
+        )
 
         tk.Label(
             form,
@@ -155,14 +165,6 @@ class StartupWindow:
         self._entry(form, self.spot_diameter_var).grid(
             row=10, column=0, columnspan=3, sticky="ew"
         )
-        tk.Label(
-            form,
-            text="Imaris Spot size only; cell detection is unchanged. Default: 5.0 µm.",
-            bg=GUI_BG,
-            fg=GUI_MUTED_FG,
-            font=("Segoe UI", 8),
-        ).grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
-
         tk.Label(
             form,
             text="CELLPOSE MODEL",
@@ -200,29 +202,17 @@ class StartupWindow:
 
         form.grid_columnconfigure(0, weight=1)
 
-        branding = tk.Frame(content, bg=GUI_BG, padx=0, pady=0)
-        branding.grid(row=0, column=1, sticky="ns", padx=(24, 0))
-        self.branding_frame = branding
-        self._add_branding(branding)
-
         separator = tk.Frame(outer, bg=GUI_BORDER, height=1)
-        separator.pack(fill="x", pady=(20, 14))
+        separator.pack(fill="x", pady=(16, 12))
 
         actions = tk.Frame(outer, bg=GUI_BG)
         actions.pack(fill="x")
-        tk.Label(
-            actions,
-            text="Image QC opens the overview first. Continue goes directly to setup.",
-            bg=GUI_BG,
-            fg=GUI_MUTED_FG,
-            font=("Segoe UI", 8),
-        ).pack(side="left")
         self._button(actions, "Cancel", self._cancel, width=11).pack(side="right")
         self._button(
             actions,
-            "Continue",
+            "Continue without QC",
             lambda: self._continue(use_quality_review=False),
-            width=14,
+            width=20,
         ).pack(side="right", padx=(0, 8))
         self._button(
             actions,
@@ -232,7 +222,7 @@ class StartupWindow:
             accent=True,
         ).pack(side="right", padx=(0, 8))
 
-    def _path_row(self, parent, row, label, variable, command):
+    def _path_row(self, parent, row, label, variable, command, secondary=None):
         tk = self.tk
         tk.Label(
             parent,
@@ -242,11 +232,37 @@ class StartupWindow:
             font=("Segoe UI Semibold", 8),
         ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 5))
 
-        entry = self._entry(parent, variable)
-        entry.grid(row=row + 1, column=0, columnspan=2, sticky="ew")
-        self._button(parent, "Browse", command, width=9).grid(
-            row=row + 1, column=2, padx=(7, 0)
+        row_frame = tk.Frame(parent, bg=GUI_BG)
+        row_frame.grid(row=row + 1, column=0, columnspan=3, sticky="ew")
+        row_frame.grid_columnconfigure(0, weight=1)
+        entry = self._entry(row_frame, variable)
+        entry.grid(row=0, column=0, sticky="ew")
+        self._button(row_frame, "Browse", command, width=9).grid(
+            row=0, column=1, padx=(7, 0)
         )
+        if secondary is not None:
+            secondary_text, secondary_command = secondary
+            self._button(
+                row_frame,
+                secondary_text,
+                secondary_command,
+                width=13,
+            ).grid(row=0, column=2, padx=(7, 0))
+        else:
+            placeholder = self._button(
+                row_frame,
+                "",
+                lambda: None,
+                width=13,
+            )
+            placeholder.configure(
+                state="disabled",
+                bg=GUI_BG,
+                disabledforeground=GUI_BG,
+                highlightbackground=GUI_BG,
+                cursor="arrow",
+            )
+            placeholder.grid(row=0, column=2, padx=(7, 0))
 
     def _entry(self, parent, variable):
         return self.tk.Entry(
@@ -286,48 +302,6 @@ class StartupWindow:
             pady=5,
         )
 
-    def _add_branding(self, parent):
-        try:
-            from PIL import Image, ImageTk
-
-            image = Image.open(GUI_BANNER_PATH).convert("RGBA")
-
-            # The source artwork is square and contains a generous black
-            # border. Crop only that near-black border so the logo itself fits
-            # the startup window tightly without altering the source asset.
-            luminance = image.convert("RGB").convert("L")
-            visible = luminance.point(lambda value: 255 if value > 10 else 0)
-            bounds = visible.getbbox()
-            if bounds is not None:
-                image = image.crop(bounds)
-
-            image.thumbnail((205, 285), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(image, master=self.root)
-            label = self.tk.Label(
-                parent,
-                image=photo,
-                bg=GUI_BG,
-                borderwidth=0,
-                highlightthickness=0,
-                padx=0,
-                pady=0,
-            )
-            label.pack(expand=True)
-            self.branding_label = label
-            self._images.append(photo)
-        except Exception:
-            label = self.tk.Label(
-                parent,
-                text="NEURODOT",
-                bg=GUI_BG,
-                fg=GUI_ACCENT,
-                font=("Segoe UI Semibold", 18),
-                padx=24,
-                pady=80,
-            )
-            label.pack(expand=True)
-            self.branding_label = label
-
     def _browse_input(self):
         selected = self.filedialog.askdirectory(
             title="Select folder containing Imaris files",
@@ -343,6 +317,9 @@ class StartupWindow:
         )
         if selected:
             self.output_var.set(selected)
+
+    def _use_input_as_output(self):
+        self.output_var.set(self.input_var.get().strip())
 
     def _browse_model(self):
         initial = Path(self.model_var.get()).expanduser()

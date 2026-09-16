@@ -22,6 +22,9 @@ class _Value:
     def get(self):
         return self.value
 
+    def set(self, value):
+        self.value = value
+
 
 class _FailOnMessage:
     def showerror(self, title, message):
@@ -91,6 +94,15 @@ class ProjectTests(unittest.TestCase):
                     use_quality_review,
                 )
                 self.assertTrue(window.root.destroyed)
+
+    def test_startup_output_can_be_set_to_input_folder(self):
+        window = StartupWindow.__new__(StartupWindow)
+        window.input_var = _Value(r"C:\data\input")
+        window.output_var = _Value(r"C:\data\output")
+
+        window._use_input_as_output()
+
+        self.assertEqual(window.output_var.get(), r"C:\data\input")
 
     def test_runtime_directories_are_project_local(self):
         self.assertEqual(config.IMS_INPUT_DIR, PROJECT_ROOT / "data" / "input")

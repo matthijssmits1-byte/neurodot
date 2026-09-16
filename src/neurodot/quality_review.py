@@ -1,13 +1,17 @@
 """Pre-analysis, high-resolution overview for series quality control."""
 
 from datetime import datetime
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import queue
+import shutil
 
-from .common import *
+import numpy as np
+
 from .config import *
-from .detection import apply_manual_exposure, suggest_setup_preview_white
-from .image_io import read_qc_mip_for_file_channel
+from .qc_io import read_qc_mip_for_file_channel
 
 
 EXCLUDED_FOLDER_NAME = "excluded_from_analysis"
@@ -18,15 +22,34 @@ OVERVIEW_ZOOM_STEP = 1.20
 OVERVIEW_PREVIEW_MAX_SIZE = 400
 OVERVIEW_FOREGROUND_WORKERS = 4
 OVERVIEW_BACKGROUND_WORKERS = 2
+OVERVIEW_EXPOSURE_BLACK_DEFAULT = 0.0
+OVERVIEW_EXPOSURE_WHITE_DEFAULT = 400.0
+OVERVIEW_EXPOSURE_SLIDER_MAX = 2000.0
 OVERVIEW_INCLUDED_BORDER = "#2f7540"
 OVERVIEW_INCLUDED_TEXT = "#69a976"
 OVERVIEW_EXCLUDED_COLOR = "#ff5555"
 
 
+def _apply_preview_exposure(raw_image, black_point, white_point):
+    """Window a cached QC MIP without importing the Cellpose stack."""
+    image = np.asarray(raw_image, dtype=np.float32)
+    return np.clip(
+        (image - float(black_point)) / (float(white_point) - float(black_point)),
+        0.0,
+        1.0,
+    )
+
+
 class ImageQualityOverviewWindow:
     """Show every IMS MIP and let the operator exclude poor-quality files."""
 
-    def __init__(self, ims_files, input_dir=None, apply_exclusions=True):
+    def __init__(
+        self,
+        ims_files,
+        input_dir=None,
+        apply_exclusions=True,
+        on_initial_previews_ready=None,
+    ):
         import tkinter as tk
         from tkinter import messagebox
         from PIL import Image, ImageTk
@@ -38,10 +61,20 @@ class ImageQualityOverviewWindow:
         self.ims_files = [Path(path) for path in ims_files]
         self.input_dir = Path(input_dir) if input_dir is not None else Path(IMS_INPUT_DIR)
         self.apply_exclusions = bool(apply_exclusions)
+        self.on_initial_previews_ready = on_initial_previews_ready
+        self.initial_previews_ready_notified = False
         self.selected = {path: True for path in self.ims_files}
         self.current_channel = "g"
         self.zoom = 1.0
         self.result = None
+        self.channel_exposure = {
+            channel: {
+                "black": OVERVIEW_EXPOSURE_BLACK_DEFAULT,
+                "white": OVERVIEW_EXPOSURE_WHITE_DEFAULT,
+            }
+            for channel in OVERVIEW_CHANNELS
+        }
+        self._updating_exposure_controls = False
 
         self.preview_cache = {}
         self.resized_preview_cache = {}
@@ -216,6 +249,57 @@ class ImageQualityOverviewWindow:
         )
         self.continue_border.pack(side="right")
 
+        exposure_bar = self.tk.Frame(
+            self.root,
+            bg=GUI_BG,
+            padx=14,
+            pady=7,
+        )
+        exposure_bar.pack(fill="x")
+        self.tk.Label(
+            exposure_bar,
+            text="EXPOSURE",
+            bg=GUI_BG,
+            fg=GUI_MUTED_FG,
+            font=("Segoe UI Semibold", 8),
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        self.black_exposure_var = self.tk.DoubleVar(
+            value=OVERVIEW_EXPOSURE_BLACK_DEFAULT
+        )
+        self.white_exposure_var = self.tk.DoubleVar(
+            value=OVERVIEW_EXPOSURE_WHITE_DEFAULT
+        )
+        self._add_exposure_slider(
+            exposure_bar,
+            "Black",
+            self.black_exposure_var,
+            self._on_black_exposure_changed,
+            row=1,
+        )
+        self._add_exposure_slider(
+            exposure_bar,
+            "White",
+            self.white_exposure_var,
+            self._on_white_exposure_changed,
+            row=2,
+        )
+        reset_exposure_border, _reset_exposure_button = self._bordered_button(
+            exposure_bar,
+            "Reset",
+            self.reset_channel_exposure,
+            8,
+        )
+        reset_exposure_border.grid(
+            row=0,
+            column=2,
+            sticky="e",
+            padx=(10, 0),
+            pady=(0, 2),
+        )
+        exposure_bar.grid_columnconfigure(1, weight=1)
+        self._load_channel_exposure_controls()
+
         status_bar = self.tk.Frame(self.root, bg=GUI_BG, padx=14, pady=7)
         status_bar.pack(fill="x")
         self.status_var = self.tk.StringVar()
@@ -277,6 +361,98 @@ class ImageQualityOverviewWindow:
         self._update_channel_buttons()
         self._update_status()
 
+    def _add_exposure_slider(
+        self,
+        parent,
+        label,
+        variable,
+        command,
+        row,
+    ):
+        self.tk.Label(
+            parent,
+            text=label,
+            bg=GUI_BG,
+            fg=GUI_FG,
+            font=("Segoe UI", 9),
+            width=8,
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w")
+        scale = self.tk.Scale(
+            parent,
+            variable=variable,
+            command=command,
+            from_=0.0,
+            to=OVERVIEW_EXPOSURE_SLIDER_MAX,
+            resolution=1.0,
+            orient="horizontal",
+            showvalue=True,
+            length=1400,
+            sliderlength=16,
+            bg=GUI_BG,
+            fg=GUI_FG,
+            troughcolor=GUI_CONTROL_BG,
+            activebackground=GUI_ACCENT,
+            highlightthickness=0,
+            borderwidth=0,
+            font=("Segoe UI", 8),
+        )
+        scale.grid(row=row, column=1, columnspan=2, sticky="ew")
+
+    def _load_channel_exposure_controls(self):
+        values = self.channel_exposure[self.current_channel]
+        self._updating_exposure_controls = True
+        try:
+            self.black_exposure_var.set(values["black"])
+            self.white_exposure_var.set(values["white"])
+        finally:
+            self._updating_exposure_controls = False
+
+    def _on_black_exposure_changed(self, value):
+        if self._updating_exposure_controls:
+            return
+        black = float(value)
+        values = self.channel_exposure[self.current_channel]
+        values["black"] = min(black, values["white"] - 1.0)
+        if values["black"] != black:
+            self._updating_exposure_controls = True
+            try:
+                self.black_exposure_var.set(values["black"])
+            finally:
+                self._updating_exposure_controls = False
+        self._exposure_changed()
+
+    def _on_white_exposure_changed(self, value):
+        if self._updating_exposure_controls:
+            return
+        white = float(value)
+        values = self.channel_exposure[self.current_channel]
+        values["white"] = max(white, values["black"] + 1.0)
+        if values["white"] != white:
+            self._updating_exposure_controls = True
+            try:
+                self.white_exposure_var.set(values["white"])
+            finally:
+                self._updating_exposure_controls = False
+        self._exposure_changed()
+
+    def _exposure_changed(self):
+        channel = self.current_channel
+        self.resized_preview_cache = {
+            key: image
+            for key, image in self.resized_preview_cache.items()
+            if key[1] != channel
+        }
+        self.schedule_render()
+
+    def reset_channel_exposure(self):
+        self.channel_exposure[self.current_channel] = {
+            "black": OVERVIEW_EXPOSURE_BLACK_DEFAULT,
+            "white": OVERVIEW_EXPOSURE_WHITE_DEFAULT,
+        }
+        self._load_channel_exposure_controls()
+        self._exposure_changed()
+
     def _update_channel_buttons(self):
         for channel, button in self.channel_buttons.items():
             active = channel == self.current_channel
@@ -300,12 +476,11 @@ class ImageQualityOverviewWindow:
         cached_count = len(self.preview_cache)
         cache_target = len(self.ims_files) * len(OVERVIEW_CHANNELS)
         self.status_var.set(
-            f"Included: {selected_count} of {len(self.ims_files)}    "
-            f"Excluded: {excluded_count}    "
-            f"Channel: {self.current_channel}    "
-            f"Loaded: {loaded_count} of {len(self.ims_files)}    "
-            f"Preloaded: {cached_count} of {cache_target}    "
-            f"Zoom: {self.zoom:.2f}x"
+            f"{selected_count} included  ·  {excluded_count} excluded    "
+            f"{self.current_channel} channel  ·  "
+            f"{loaded_count}/{len(self.ims_files)} ready  ·  "
+            f"{cached_count}/{cache_target} cached  ·  "
+            f"{self.zoom:.2f}x"
         )
         loading = self._channel_is_loading(self.current_channel)
         self.continue_button.configure(
@@ -323,15 +498,7 @@ class ImageQualityOverviewWindow:
         )
         if mip is None:
             raise RuntimeError(f"Channel {channel} is unavailable")
-        white = suggest_setup_preview_white(mip)
-        windowed = apply_manual_exposure(mip, SETUP_PREVIEW_BLACK, white)
-        u8 = (np.clip(windowed, 0.0, 1.0) * 255.0).astype(np.uint8)
-        image = self.Image.fromarray(u8, mode="L")
-        image.thumbnail(
-            (OVERVIEW_PREVIEW_MAX_SIZE, OVERVIEW_PREVIEW_MAX_SIZE),
-            self.Image.Resampling.LANCZOS,
-        )
-        return image, float(white)
+        return np.asarray(mip)
 
     def _channel_is_loading(self, channel):
         return any(key[1] == channel for key in self.pending)
@@ -352,10 +519,10 @@ class ImageQualityOverviewWindow:
             if completed.cancelled():
                 return
             try:
-                image, white = completed.result()
-                payload = (item, image, white, None)
+                mip = completed.result()
+                payload = (item, mip, None)
             except BaseException as exc:
-                payload = (item, None, None, str(exc))
+                payload = (item, None, str(exc))
             self.events.put(payload)
 
         future.add_done_callback(lambda completed, item=key: finished(item, completed))
@@ -405,21 +572,30 @@ class ImageQualityOverviewWindow:
         changed = False
         while True:
             try:
-                key, image, white, error = self.events.get_nowait()
+                key, mip, error = self.events.get_nowait()
             except queue.Empty:
                 break
             self.pending.discard(key)
             self.foreground_futures.pop(key, None)
             self.background_futures.pop(key, None)
             self.preview_cache[key] = {
-                "image": image,
-                "white": white,
+                "mip": mip,
                 "error": error,
             }
             changed = True
         if changed:
             self.schedule_render()
             self._update_status()
+            if (
+                not self.initial_previews_ready_notified
+                and self.on_initial_previews_ready is not None
+                and all(
+                    (path, self.current_channel) in self.preview_cache
+                    for path in self.ims_files
+                )
+            ):
+                self.initial_previews_ready_notified = True
+                self.on_initial_previews_ready()
         self.poll_after_id = self.root.after(60, self._poll_events)
 
     @staticmethod
@@ -501,15 +677,28 @@ class ImageQualityOverviewWindow:
                     font=("Segoe UI", font_size),
                 )
             else:
-                image = entry["image"]
+                mip = entry["mip"]
+                image_size = (int(mip.shape[1]), int(mip.shape[0]))
                 fitted = self._fit_size(
-                    image.size,
+                    image_size,
                     max(1, tile_width - 2 * border_width),
                     max(1, image_height - 2 * border_width),
                 )
-                resized_key = (path, self.current_channel, fitted)
+                exposure = self.channel_exposure[self.current_channel]
+                black = float(exposure["black"])
+                white = float(exposure["white"])
+                resized_key = (
+                    path,
+                    self.current_channel,
+                    fitted,
+                    black,
+                    white,
+                )
                 resized = self.resized_preview_cache.get(resized_key)
                 if resized is None:
+                    windowed = _apply_preview_exposure(mip, black, white)
+                    u8 = (np.clip(windowed, 0.0, 1.0) * 255.0).astype(np.uint8)
+                    image = self.Image.fromarray(u8, mode="L")
                     resized = image.resize(fitted, self.Image.Resampling.LANCZOS)
                     self.resized_preview_cache[resized_key] = resized
                 photo = self.ImageTk.PhotoImage(resized, master=self.root)
@@ -553,6 +742,7 @@ class ImageQualityOverviewWindow:
             return
         self.current_channel = channel
         self._update_channel_buttons()
+        self._load_channel_exposure_controls()
         self._queue_channel_loads()
         self._queue_background_preloads()
         self.schedule_render()
@@ -768,7 +958,12 @@ def move_excluded_files(excluded_files, input_dir):
     return [destination for _source, destination in moved]
 
 
-def choose_image_quality_overview(ims_files, input_dir, progress=None):
+def choose_image_quality_overview(
+    ims_files,
+    input_dir,
+    progress=None,
+    on_initial_previews_ready=None,
+):
     """Review the series, apply confirmed exclusions, and return included files."""
     if progress is not None:
         progress.update(
@@ -777,7 +972,11 @@ def choose_image_quality_overview(ims_files, input_dir, progress=None):
         )
         progress.close()
 
-    review = ImageQualityOverviewWindow(ims_files, input_dir=input_dir).run()
+    review = ImageQualityOverviewWindow(
+        ims_files,
+        input_dir=input_dir,
+        on_initial_previews_ready=on_initial_previews_ready,
+    ).run()
     if review is None:
         return None
 

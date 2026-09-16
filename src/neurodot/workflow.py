@@ -725,7 +725,13 @@ def process_single_ims_file(
 
 
 
-def main(progress=None, use_quality_review=True):
+def main(
+    progress=None,
+    use_quality_review=True,
+    preselected_ims_files=None,
+    preloaded_models=None,
+    quality_review_completed=False,
+):
     if progress is not None:
         progress.update(
             "Checking the selected folders...",
@@ -741,8 +747,10 @@ def main(progress=None, use_quality_review=True):
         exist_ok=True,
     )
 
-    ims_files = sorted(
-        IMS_INPUT_DIR.glob("*.ims")
+    ims_files = (
+        sorted(IMS_INPUT_DIR.glob("*.ims"))
+        if preselected_ims_files is None
+        else [Path(path) for path in preselected_ims_files]
     )
     configured_donor_resolved = SCHEMA_DONOR_IMS.resolve()
     ims_files = [
@@ -788,6 +796,14 @@ def main(progress=None, use_quality_review=True):
                     f"{len(ims_files)} file(s) passed image-quality review. "
                     "The output template and Cellpose model will be checked next."
                 ),
+                heading="PREPARING CELL COUNTING",
+            )
+    elif quality_review_completed:
+        print("Image-quality review completed before workflow initialization.")
+        if progress is not None:
+            progress.update(
+                "Preparing the selected IMS files...",
+                f"Using {len(ims_files)} file(s) accepted during image QC.",
                 heading="PREPARING CELL COUNTING",
             )
     else:
@@ -876,7 +892,15 @@ def main(progress=None, use_quality_review=True):
             "(all spots will share the stack midpoint Z)"
         )
 
-    if progress is not None:
+    if preloaded_models is not None:
+        loaded_models = preloaded_models
+        if progress is not None:
+            progress.update(
+                "Cellpose is ready.",
+                "The model was loaded in the background during image QC.",
+                heading="PREPARING CELL COUNTING",
+            )
+    elif progress is not None:
         loaded_models = progress.run_task(
             lambda: initialize_models(device, progress=progress)
         )

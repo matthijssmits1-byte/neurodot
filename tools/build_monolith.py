@@ -19,6 +19,7 @@ MODULE_ORDER = (
     "logging_setup.py",
     "startup_gui.py",
     "progress_gui.py",
+    "qc_io.py",
     "quality_review.py",
     "gui.py",
     "self_test.py",
@@ -75,8 +76,8 @@ def prepare_module(module_name):
 
     if module_name == "workflow.py":
         prepared = prepared.replace(
-            "def main(progress=None, use_quality_review=True):",
-            "def run_workflow(progress=None, use_quality_review=True):",
+            "def main(\n    progress=None,",
+            "def run_workflow(\n    progress=None,",
             1,
         )
 
@@ -133,6 +134,102 @@ def _load_heavy_dependencies():
     transforms = transforms_module
 
 
+def _load_qc_dependencies():
+    """Load only the numerical and HDF5 libraries required by image QC."""
+    global np, h5py
+
+    import numpy as np_module
+    import h5py as h5py_module
+
+    np = np_module
+    h5py = h5py_module
+
+
+def _start_daemon_preparation(function):
+    from concurrent.futures import Future
+
+    future = Future()
+
+    def worker():
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            future.set_result(function())
+        except BaseException as exc:
+            future.set_exception(exc)
+
+    threading.Thread(
+        target=worker,
+        name="neurodot_qc_preparation",
+        daemon=True,
+    ).start()
+    return future
+
+
+def _prepare_workflow_and_model():
+    _load_heavy_dependencies()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return initialize_models(device, progress=None)
+
+
+def _run_quality_review_first():
+    _load_qc_dependencies()
+    IMS_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ims_files = sorted(IMS_INPUT_DIR.glob("*.ims"))
+    donor = SCHEMA_DONOR_IMS.resolve()
+    ims_files = [path for path in ims_files if path.resolve() != donor]
+
+    if not ims_files:
+        from tkinter import messagebox
+
+        messagebox.showinfo(
+            "No IMS files found",
+            f"Add .ims files to:\\n\\n{IMS_INPUT_DIR.resolve()}",
+        )
+        return None
+
+    preparation = {"future": None}
+
+    def start_preparation():
+        if preparation["future"] is None:
+            preparation["future"] = _start_daemon_preparation(
+                _prepare_workflow_and_model
+            )
+
+    selected_files = choose_image_quality_overview(
+        ims_files,
+        input_dir=IMS_INPUT_DIR,
+        on_initial_previews_ready=start_preparation,
+    )
+    if selected_files is None:
+        return None
+
+    start_preparation()
+    future = preparation["future"]
+    progress = ProgressWindow()
+    progress.show(
+        status="Preparing Cellpose...",
+        detail="Finishing the background preparation started during image QC.",
+        heading="PREPARING CELL COUNTING",
+    )
+    try:
+        loaded_models = (
+            future.result()
+            if future.done()
+            else progress.run_task(future.result)
+        )
+        return run_workflow(
+            progress=progress,
+            use_quality_review=False,
+            preselected_ims_files=selected_files,
+            preloaded_models=loaded_models,
+            quality_review_completed=True,
+        )
+    except Exception:
+        progress.close()
+        raise
+
+
 def main():
     """Collect startup settings and run the complete workflow."""
     startup = choose_startup_settings()
@@ -141,6 +238,9 @@ def main():
 
     use_quality_review = bool(startup.pop("use_quality_review", True))
     apply_startup_settings(**startup)
+
+    if use_quality_review:
+        return _run_quality_review_first()
 
     progress = ProgressWindow()
     progress.show(
@@ -181,7 +281,7 @@ if __name__ == "__main__":
     monolith = "".join(sections)
     if re.search(r"^\s*from\s+\.", monolith, flags=re.MULTILINE):
         raise RuntimeError("Generated monolith still contains a relative import.")
-    if "def run_workflow(progress=None, use_quality_review=True):" not in monolith:
+    if "def run_workflow(" not in monolith:
         raise RuntimeError("Workflow entry point was not renamed.")
 
     return monolith

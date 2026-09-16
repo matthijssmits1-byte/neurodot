@@ -4608,28 +4608,39 @@ class StartupWindow:
         content = tk.Frame(outer, bg=GUI_BG)
         content.pack(fill="both", expand=True)
         self.content_frame = content
+        content.grid_columnconfigure(0, weight=1)
 
-        form = tk.Frame(content, bg=GUI_BG)
-        form.grid(row=0, column=0, sticky="nsew")
-
+        header = tk.Frame(content, bg=GUI_BG)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        title_block = tk.Frame(header, bg=GUI_BG)
+        title_block.pack(side="left", anchor="nw", fill="x", expand=True)
         tk.Label(
-            form,
+            title_block,
             text="START A COUNTING JOB",
             bg=GUI_BG,
             fg=GUI_ACCENT,
             font=("Segoe UI Semibold", 13),
-        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 3))
-
+        ).pack(anchor="w", pady=(0, 3))
         tk.Label(
-            form,
+            title_block,
             text="Choose the files and model for this run, then select how to begin.",
             bg=GUI_BG,
             fg=GUI_MUTED_FG,
             font=("Segoe UI", 9),
-        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 17))
+        ).pack(anchor="w")
+
+        form = tk.Frame(content, bg=GUI_BG)
+        form.grid(row=1, column=0, sticky="nsew")
 
         self._path_row(form, 2, "INPUT FOLDER", self.input_var, self._browse_input)
-        self._path_row(form, 4, "OUTPUT FOLDER", self.output_var, self._browse_output)
+        self._path_row(
+            form,
+            4,
+            "OUTPUT FOLDER",
+            self.output_var,
+            self._browse_output,
+            secondary=("Same as input", self._use_input_as_output),
+        )
 
         tk.Label(
             form,
@@ -4661,14 +4672,6 @@ class StartupWindow:
         self._entry(form, self.spot_diameter_var).grid(
             row=10, column=0, columnspan=3, sticky="ew"
         )
-        tk.Label(
-            form,
-            text="Imaris Spot size only; cell detection is unchanged. Default: 5.0 µm.",
-            bg=GUI_BG,
-            fg=GUI_MUTED_FG,
-            font=("Segoe UI", 8),
-        ).grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
-
         tk.Label(
             form,
             text="CELLPOSE MODEL",
@@ -4706,29 +4709,17 @@ class StartupWindow:
 
         form.grid_columnconfigure(0, weight=1)
 
-        branding = tk.Frame(content, bg=GUI_BG, padx=0, pady=0)
-        branding.grid(row=0, column=1, sticky="ns", padx=(24, 0))
-        self.branding_frame = branding
-        self._add_branding(branding)
-
         separator = tk.Frame(outer, bg=GUI_BORDER, height=1)
-        separator.pack(fill="x", pady=(20, 14))
+        separator.pack(fill="x", pady=(16, 12))
 
         actions = tk.Frame(outer, bg=GUI_BG)
         actions.pack(fill="x")
-        tk.Label(
-            actions,
-            text="Image QC opens the overview first. Continue goes directly to setup.",
-            bg=GUI_BG,
-            fg=GUI_MUTED_FG,
-            font=("Segoe UI", 8),
-        ).pack(side="left")
         self._button(actions, "Cancel", self._cancel, width=11).pack(side="right")
         self._button(
             actions,
-            "Continue",
+            "Continue without QC",
             lambda: self._continue(use_quality_review=False),
-            width=14,
+            width=20,
         ).pack(side="right", padx=(0, 8))
         self._button(
             actions,
@@ -4738,7 +4729,7 @@ class StartupWindow:
             accent=True,
         ).pack(side="right", padx=(0, 8))
 
-    def _path_row(self, parent, row, label, variable, command):
+    def _path_row(self, parent, row, label, variable, command, secondary=None):
         tk = self.tk
         tk.Label(
             parent,
@@ -4748,11 +4739,37 @@ class StartupWindow:
             font=("Segoe UI Semibold", 8),
         ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 5))
 
-        entry = self._entry(parent, variable)
-        entry.grid(row=row + 1, column=0, columnspan=2, sticky="ew")
-        self._button(parent, "Browse", command, width=9).grid(
-            row=row + 1, column=2, padx=(7, 0)
+        row_frame = tk.Frame(parent, bg=GUI_BG)
+        row_frame.grid(row=row + 1, column=0, columnspan=3, sticky="ew")
+        row_frame.grid_columnconfigure(0, weight=1)
+        entry = self._entry(row_frame, variable)
+        entry.grid(row=0, column=0, sticky="ew")
+        self._button(row_frame, "Browse", command, width=9).grid(
+            row=0, column=1, padx=(7, 0)
         )
+        if secondary is not None:
+            secondary_text, secondary_command = secondary
+            self._button(
+                row_frame,
+                secondary_text,
+                secondary_command,
+                width=13,
+            ).grid(row=0, column=2, padx=(7, 0))
+        else:
+            placeholder = self._button(
+                row_frame,
+                "",
+                lambda: None,
+                width=13,
+            )
+            placeholder.configure(
+                state="disabled",
+                bg=GUI_BG,
+                disabledforeground=GUI_BG,
+                highlightbackground=GUI_BG,
+                cursor="arrow",
+            )
+            placeholder.grid(row=0, column=2, padx=(7, 0))
 
     def _entry(self, parent, variable):
         return self.tk.Entry(
@@ -4792,48 +4809,6 @@ class StartupWindow:
             pady=5,
         )
 
-    def _add_branding(self, parent):
-        try:
-            from PIL import Image, ImageTk
-
-            image = Image.open(GUI_BANNER_PATH).convert("RGBA")
-
-            # The source artwork is square and contains a generous black
-            # border. Crop only that near-black border so the logo itself fits
-            # the startup window tightly without altering the source asset.
-            luminance = image.convert("RGB").convert("L")
-            visible = luminance.point(lambda value: 255 if value > 10 else 0)
-            bounds = visible.getbbox()
-            if bounds is not None:
-                image = image.crop(bounds)
-
-            image.thumbnail((205, 285), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(image, master=self.root)
-            label = self.tk.Label(
-                parent,
-                image=photo,
-                bg=GUI_BG,
-                borderwidth=0,
-                highlightthickness=0,
-                padx=0,
-                pady=0,
-            )
-            label.pack(expand=True)
-            self.branding_label = label
-            self._images.append(photo)
-        except Exception:
-            label = self.tk.Label(
-                parent,
-                text="NEURODOT",
-                bg=GUI_BG,
-                fg=GUI_ACCENT,
-                font=("Segoe UI Semibold", 18),
-                padx=24,
-                pady=80,
-            )
-            label.pack(expand=True)
-            self.branding_label = label
-
     def _browse_input(self):
         selected = self.filedialog.askdirectory(
             title="Select folder containing Imaris files",
@@ -4849,6 +4824,9 @@ class StartupWindow:
         )
         if selected:
             self.output_var.set(selected)
+
+    def _use_input_as_output(self):
+        self.output_var.set(self.input_var.get().strip())
 
     def _browse_model(self):
         initial = Path(self.model_var.get()).expanduser()
@@ -5270,14 +5248,235 @@ class ProgressWindow:
 
 
 # ============================================================================
+# BEGIN GENERATED MODULE: qc_io.py
+# ============================================================================
+
+"""Lightweight Imaris pyramid reading used before Cellpose is imported."""
+
+import math
+import re
+
+
+
+
+def _decode_h5_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (bytes, np.bytes_)):
+        return bytes(value).decode("utf-8", errors="ignore").rstrip("\x00")
+    if isinstance(value, np.ndarray):
+        if value.size == 0:
+            return ""
+        if value.dtype.kind == "S":
+            return b"".join(bytes(item) for item in value.ravel()).decode(
+                "utf-8", errors="ignore"
+            ).rstrip("\x00")
+        if value.dtype.kind == "U":
+            return "".join(str(item) for item in value.ravel()).rstrip("\x00")
+        if value.dtype.kind in ("u", "i"):
+            try:
+                return bytes(
+                    int(item)
+                    for item in value.ravel()
+                    if 0 <= int(item) <= 255
+                ).decode("utf-8", errors="ignore").rstrip("\x00")
+            except Exception:
+                pass
+        if value.size == 1:
+            return _decode_h5_text(value.flat[0])
+        return str(value)
+    if isinstance(value, np.generic):
+        return str(value.item())
+    return str(value)
+
+
+def _parse_float(value):
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    match = re.search(
+        r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?",
+        _decode_h5_text(value),
+    )
+    return float(match.group(0)) if match else None
+
+
+def _logical_channel_from_wavelength(wavelength_nm):
+    wavelength = float(wavelength_nm)
+    if not math.isfinite(wavelength):
+        return None
+    for channel in ("405", "g", "r", "b"):
+        low, high = CHANNEL_WAVELENGTH_BANDS_NM[channel]
+        if low is not None and wavelength < float(low):
+            continue
+        if high is not None and wavelength >= float(high):
+            continue
+        return channel
+    return None
+
+
+def _map_channels(h5):
+    mapping = {}
+    dataset_info = h5.get("DataSetInfo")
+    if dataset_info is None:
+        raise RuntimeError("DataSetInfo is missing.")
+
+    for key in dataset_info.keys():
+        if not str(key).startswith("Channel"):
+            continue
+        digits = "".join(character for character in str(key) if character.isdigit())
+        if not digits:
+            continue
+        channel_index = int(digits)
+        group = dataset_info[key]
+        raw_name = _decode_h5_text(group.attrs.get("Name", "")).strip().lower()
+
+        raw_wavelength = ""
+        for attribute_name, raw_value in group.attrs.items():
+            if "emission" in str(attribute_name).lower():
+                raw_wavelength = _decode_h5_text(raw_value)
+                break
+        if not raw_wavelength:
+            for attribute_name, raw_value in group.attrs.items():
+                if "wavelength" in str(attribute_name).lower():
+                    raw_wavelength = _decode_h5_text(raw_value)
+                    break
+
+        wavelength = _parse_float(raw_wavelength) if raw_wavelength else None
+        matched = None
+        if wavelength is not None and math.isfinite(float(wavelength)):
+            matched = _logical_channel_from_wavelength(wavelength)
+        elif wavelength is None:
+            for target, settings in TARGET_CONFIG.items():
+                if raw_name in settings["aliases"]:
+                    matched = target
+                    break
+
+        if matched is not None and matched not in mapping:
+            mapping[matched] = channel_index
+    return mapping
+
+
+def _level0_shape_zyx(h5):
+    path = "DataSet/ResolutionLevel 0/TimePoint 0"
+    if path not in h5:
+        raise RuntimeError(f"Missing {path}")
+    timepoint = h5[path]
+    channels = sorted(key for key in timepoint if str(key).startswith("Channel"))
+    if not channels:
+        raise RuntimeError("No channels at ResolutionLevel 0 / TimePoint 0")
+    return tuple(int(value) for value in timepoint[channels[0]]["Data"].shape)
+
+
+def _logical_dimension(image_group, key):
+    candidates = (key, key.upper(), key.lower(), f"Size{key.upper()}", f"size{key.upper()}")
+    for name in candidates:
+        if name in image_group.attrs:
+            value = _parse_float(image_group.attrs[name])
+            if value is not None and int(round(value)) > 0:
+                return int(round(value))
+        if name in image_group and isinstance(image_group[name], h5py.Dataset):
+            value = _parse_float(image_group[name][()])
+            if value is not None and int(round(value)) > 0:
+                return int(round(value))
+    return None
+
+
+def _logical_shape_zyx(h5):
+    storage_z, storage_y, storage_x = _level0_shape_zyx(h5)
+    if "DataSetInfo/Image" not in h5:
+        return storage_z, storage_y, storage_x
+    image = h5["DataSetInfo/Image"]
+    logical_x = _logical_dimension(image, "X") or storage_x
+    logical_y = _logical_dimension(image, "Y") or storage_y
+    logical_z = _logical_dimension(image, "Z") or storage_z
+    if logical_x > storage_x or logical_y > storage_y or logical_z > storage_z:
+        raise RuntimeError(
+            "Imaris logical dimensions exceed level-0 HDF5 storage shape."
+        )
+    return logical_z, logical_y, logical_x
+
+
+def choose_qc_resolution_level(level_shapes_zyx, logical_shape_zyx, target_size):
+    """Choose the smallest stored pyramid level that is not below target size."""
+    if not level_shapes_zyx:
+        raise RuntimeError("No Imaris resolution levels are available.")
+    target_size = max(1, int(target_size))
+    level0_shape = level_shapes_zyx[min(level_shapes_zyx)]
+    logical_z0, logical_y0, logical_x0 = map(int, logical_shape_zyx)
+    storage_z0, storage_y0, storage_x0 = map(int, level0_shape)
+    candidates = []
+    for level, storage_shape in level_shapes_zyx.items():
+        storage_z, storage_y, storage_x = map(int, storage_shape)
+        logical_shape = (
+            max(1, min(storage_z, math.ceil(logical_z0 * storage_z / storage_z0))),
+            max(1, min(storage_y, math.ceil(logical_y0 * storage_y / storage_y0))),
+            max(1, min(storage_x, math.ceil(logical_x0 * storage_x / storage_x0))),
+        )
+        candidates.append((int(level), logical_shape, max(logical_shape[1:])))
+    large_enough = [item for item in candidates if item[2] >= target_size]
+    if large_enough:
+        return min(large_enough, key=lambda item: (item[2], item[0]))[:2]
+    return max(candidates, key=lambda item: (item[2], -item[0]))[:2]
+
+
+def read_qc_mip_for_file_channel(ims_path, logical_channel, target_size=400):
+    """Read an aspect-preserving MIP from a small stored Imaris pyramid level."""
+    with h5py.File(ims_path, "r") as h5:
+        mapping = _map_channels(h5)
+        if logical_channel not in mapping:
+            return None
+        channel_index = int(mapping[logical_channel])
+        dataset_group = h5.get("DataSet")
+        if dataset_group is None:
+            raise RuntimeError("DataSet is missing.")
+
+        level_paths = {}
+        level_shapes = {}
+        for level_name in dataset_group.keys():
+            match = re.fullmatch(r"ResolutionLevel\s+(\d+)", str(level_name))
+            if match is None:
+                continue
+            level = int(match.group(1))
+            path = (
+                f"DataSet/{level_name}/TimePoint 0/"
+                f"Channel {channel_index}/Data"
+            )
+            if path in h5:
+                level_paths[level] = path
+                level_shapes[level] = tuple(int(value) for value in h5[path].shape)
+        if not level_paths:
+            raise RuntimeError(
+                f"No pyramid data found for physical Channel {channel_index}."
+            )
+
+        level, logical_shape = choose_qc_resolution_level(
+            level_shapes,
+            _logical_shape_zyx(h5),
+            target_size,
+        )
+        logical_z, logical_y, logical_x = logical_shape
+        volume = np.asarray(
+            h5[level_paths[level]][:logical_z, :logical_y, :logical_x]
+        )
+        return np.asarray(np.max(volume, axis=0))
+
+
+# ============================================================================
 # BEGIN GENERATED MODULE: quality_review.py
 # ============================================================================
 
 """Pre-analysis, high-resolution overview for series quality control."""
 
 from datetime import datetime
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import queue
+import shutil
+
 
 
 
@@ -5289,15 +5488,34 @@ OVERVIEW_ZOOM_STEP = 1.20
 OVERVIEW_PREVIEW_MAX_SIZE = 400
 OVERVIEW_FOREGROUND_WORKERS = 4
 OVERVIEW_BACKGROUND_WORKERS = 2
+OVERVIEW_EXPOSURE_BLACK_DEFAULT = 0.0
+OVERVIEW_EXPOSURE_WHITE_DEFAULT = 400.0
+OVERVIEW_EXPOSURE_SLIDER_MAX = 2000.0
 OVERVIEW_INCLUDED_BORDER = "#2f7540"
 OVERVIEW_INCLUDED_TEXT = "#69a976"
 OVERVIEW_EXCLUDED_COLOR = "#ff5555"
 
 
+def _apply_preview_exposure(raw_image, black_point, white_point):
+    """Window a cached QC MIP without importing the Cellpose stack."""
+    image = np.asarray(raw_image, dtype=np.float32)
+    return np.clip(
+        (image - float(black_point)) / (float(white_point) - float(black_point)),
+        0.0,
+        1.0,
+    )
+
+
 class ImageQualityOverviewWindow:
     """Show every IMS MIP and let the operator exclude poor-quality files."""
 
-    def __init__(self, ims_files, input_dir=None, apply_exclusions=True):
+    def __init__(
+        self,
+        ims_files,
+        input_dir=None,
+        apply_exclusions=True,
+        on_initial_previews_ready=None,
+    ):
         import tkinter as tk
         from tkinter import messagebox
         from PIL import Image, ImageTk
@@ -5309,10 +5527,20 @@ class ImageQualityOverviewWindow:
         self.ims_files = [Path(path) for path in ims_files]
         self.input_dir = Path(input_dir) if input_dir is not None else Path(IMS_INPUT_DIR)
         self.apply_exclusions = bool(apply_exclusions)
+        self.on_initial_previews_ready = on_initial_previews_ready
+        self.initial_previews_ready_notified = False
         self.selected = {path: True for path in self.ims_files}
         self.current_channel = "g"
         self.zoom = 1.0
         self.result = None
+        self.channel_exposure = {
+            channel: {
+                "black": OVERVIEW_EXPOSURE_BLACK_DEFAULT,
+                "white": OVERVIEW_EXPOSURE_WHITE_DEFAULT,
+            }
+            for channel in OVERVIEW_CHANNELS
+        }
+        self._updating_exposure_controls = False
 
         self.preview_cache = {}
         self.resized_preview_cache = {}
@@ -5487,6 +5715,57 @@ class ImageQualityOverviewWindow:
         )
         self.continue_border.pack(side="right")
 
+        exposure_bar = self.tk.Frame(
+            self.root,
+            bg=GUI_BG,
+            padx=14,
+            pady=7,
+        )
+        exposure_bar.pack(fill="x")
+        self.tk.Label(
+            exposure_bar,
+            text="EXPOSURE",
+            bg=GUI_BG,
+            fg=GUI_MUTED_FG,
+            font=("Segoe UI Semibold", 8),
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        self.black_exposure_var = self.tk.DoubleVar(
+            value=OVERVIEW_EXPOSURE_BLACK_DEFAULT
+        )
+        self.white_exposure_var = self.tk.DoubleVar(
+            value=OVERVIEW_EXPOSURE_WHITE_DEFAULT
+        )
+        self._add_exposure_slider(
+            exposure_bar,
+            "Black",
+            self.black_exposure_var,
+            self._on_black_exposure_changed,
+            row=1,
+        )
+        self._add_exposure_slider(
+            exposure_bar,
+            "White",
+            self.white_exposure_var,
+            self._on_white_exposure_changed,
+            row=2,
+        )
+        reset_exposure_border, _reset_exposure_button = self._bordered_button(
+            exposure_bar,
+            "Reset",
+            self.reset_channel_exposure,
+            8,
+        )
+        reset_exposure_border.grid(
+            row=0,
+            column=2,
+            sticky="e",
+            padx=(10, 0),
+            pady=(0, 2),
+        )
+        exposure_bar.grid_columnconfigure(1, weight=1)
+        self._load_channel_exposure_controls()
+
         status_bar = self.tk.Frame(self.root, bg=GUI_BG, padx=14, pady=7)
         status_bar.pack(fill="x")
         self.status_var = self.tk.StringVar()
@@ -5548,6 +5827,98 @@ class ImageQualityOverviewWindow:
         self._update_channel_buttons()
         self._update_status()
 
+    def _add_exposure_slider(
+        self,
+        parent,
+        label,
+        variable,
+        command,
+        row,
+    ):
+        self.tk.Label(
+            parent,
+            text=label,
+            bg=GUI_BG,
+            fg=GUI_FG,
+            font=("Segoe UI", 9),
+            width=8,
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w")
+        scale = self.tk.Scale(
+            parent,
+            variable=variable,
+            command=command,
+            from_=0.0,
+            to=OVERVIEW_EXPOSURE_SLIDER_MAX,
+            resolution=1.0,
+            orient="horizontal",
+            showvalue=True,
+            length=1400,
+            sliderlength=16,
+            bg=GUI_BG,
+            fg=GUI_FG,
+            troughcolor=GUI_CONTROL_BG,
+            activebackground=GUI_ACCENT,
+            highlightthickness=0,
+            borderwidth=0,
+            font=("Segoe UI", 8),
+        )
+        scale.grid(row=row, column=1, columnspan=2, sticky="ew")
+
+    def _load_channel_exposure_controls(self):
+        values = self.channel_exposure[self.current_channel]
+        self._updating_exposure_controls = True
+        try:
+            self.black_exposure_var.set(values["black"])
+            self.white_exposure_var.set(values["white"])
+        finally:
+            self._updating_exposure_controls = False
+
+    def _on_black_exposure_changed(self, value):
+        if self._updating_exposure_controls:
+            return
+        black = float(value)
+        values = self.channel_exposure[self.current_channel]
+        values["black"] = min(black, values["white"] - 1.0)
+        if values["black"] != black:
+            self._updating_exposure_controls = True
+            try:
+                self.black_exposure_var.set(values["black"])
+            finally:
+                self._updating_exposure_controls = False
+        self._exposure_changed()
+
+    def _on_white_exposure_changed(self, value):
+        if self._updating_exposure_controls:
+            return
+        white = float(value)
+        values = self.channel_exposure[self.current_channel]
+        values["white"] = max(white, values["black"] + 1.0)
+        if values["white"] != white:
+            self._updating_exposure_controls = True
+            try:
+                self.white_exposure_var.set(values["white"])
+            finally:
+                self._updating_exposure_controls = False
+        self._exposure_changed()
+
+    def _exposure_changed(self):
+        channel = self.current_channel
+        self.resized_preview_cache = {
+            key: image
+            for key, image in self.resized_preview_cache.items()
+            if key[1] != channel
+        }
+        self.schedule_render()
+
+    def reset_channel_exposure(self):
+        self.channel_exposure[self.current_channel] = {
+            "black": OVERVIEW_EXPOSURE_BLACK_DEFAULT,
+            "white": OVERVIEW_EXPOSURE_WHITE_DEFAULT,
+        }
+        self._load_channel_exposure_controls()
+        self._exposure_changed()
+
     def _update_channel_buttons(self):
         for channel, button in self.channel_buttons.items():
             active = channel == self.current_channel
@@ -5571,12 +5942,11 @@ class ImageQualityOverviewWindow:
         cached_count = len(self.preview_cache)
         cache_target = len(self.ims_files) * len(OVERVIEW_CHANNELS)
         self.status_var.set(
-            f"Included: {selected_count} of {len(self.ims_files)}    "
-            f"Excluded: {excluded_count}    "
-            f"Channel: {self.current_channel}    "
-            f"Loaded: {loaded_count} of {len(self.ims_files)}    "
-            f"Preloaded: {cached_count} of {cache_target}    "
-            f"Zoom: {self.zoom:.2f}x"
+            f"{selected_count} included  ·  {excluded_count} excluded    "
+            f"{self.current_channel} channel  ·  "
+            f"{loaded_count}/{len(self.ims_files)} ready  ·  "
+            f"{cached_count}/{cache_target} cached  ·  "
+            f"{self.zoom:.2f}x"
         )
         loading = self._channel_is_loading(self.current_channel)
         self.continue_button.configure(
@@ -5594,15 +5964,7 @@ class ImageQualityOverviewWindow:
         )
         if mip is None:
             raise RuntimeError(f"Channel {channel} is unavailable")
-        white = suggest_setup_preview_white(mip)
-        windowed = apply_manual_exposure(mip, SETUP_PREVIEW_BLACK, white)
-        u8 = (np.clip(windowed, 0.0, 1.0) * 255.0).astype(np.uint8)
-        image = self.Image.fromarray(u8, mode="L")
-        image.thumbnail(
-            (OVERVIEW_PREVIEW_MAX_SIZE, OVERVIEW_PREVIEW_MAX_SIZE),
-            self.Image.Resampling.LANCZOS,
-        )
-        return image, float(white)
+        return np.asarray(mip)
 
     def _channel_is_loading(self, channel):
         return any(key[1] == channel for key in self.pending)
@@ -5623,10 +5985,10 @@ class ImageQualityOverviewWindow:
             if completed.cancelled():
                 return
             try:
-                image, white = completed.result()
-                payload = (item, image, white, None)
+                mip = completed.result()
+                payload = (item, mip, None)
             except BaseException as exc:
-                payload = (item, None, None, str(exc))
+                payload = (item, None, str(exc))
             self.events.put(payload)
 
         future.add_done_callback(lambda completed, item=key: finished(item, completed))
@@ -5676,21 +6038,30 @@ class ImageQualityOverviewWindow:
         changed = False
         while True:
             try:
-                key, image, white, error = self.events.get_nowait()
+                key, mip, error = self.events.get_nowait()
             except queue.Empty:
                 break
             self.pending.discard(key)
             self.foreground_futures.pop(key, None)
             self.background_futures.pop(key, None)
             self.preview_cache[key] = {
-                "image": image,
-                "white": white,
+                "mip": mip,
                 "error": error,
             }
             changed = True
         if changed:
             self.schedule_render()
             self._update_status()
+            if (
+                not self.initial_previews_ready_notified
+                and self.on_initial_previews_ready is not None
+                and all(
+                    (path, self.current_channel) in self.preview_cache
+                    for path in self.ims_files
+                )
+            ):
+                self.initial_previews_ready_notified = True
+                self.on_initial_previews_ready()
         self.poll_after_id = self.root.after(60, self._poll_events)
 
     @staticmethod
@@ -5772,15 +6143,28 @@ class ImageQualityOverviewWindow:
                     font=("Segoe UI", font_size),
                 )
             else:
-                image = entry["image"]
+                mip = entry["mip"]
+                image_size = (int(mip.shape[1]), int(mip.shape[0]))
                 fitted = self._fit_size(
-                    image.size,
+                    image_size,
                     max(1, tile_width - 2 * border_width),
                     max(1, image_height - 2 * border_width),
                 )
-                resized_key = (path, self.current_channel, fitted)
+                exposure = self.channel_exposure[self.current_channel]
+                black = float(exposure["black"])
+                white = float(exposure["white"])
+                resized_key = (
+                    path,
+                    self.current_channel,
+                    fitted,
+                    black,
+                    white,
+                )
                 resized = self.resized_preview_cache.get(resized_key)
                 if resized is None:
+                    windowed = _apply_preview_exposure(mip, black, white)
+                    u8 = (np.clip(windowed, 0.0, 1.0) * 255.0).astype(np.uint8)
+                    image = self.Image.fromarray(u8, mode="L")
                     resized = image.resize(fitted, self.Image.Resampling.LANCZOS)
                     self.resized_preview_cache[resized_key] = resized
                 photo = self.ImageTk.PhotoImage(resized, master=self.root)
@@ -5824,6 +6208,7 @@ class ImageQualityOverviewWindow:
             return
         self.current_channel = channel
         self._update_channel_buttons()
+        self._load_channel_exposure_controls()
         self._queue_channel_loads()
         self._queue_background_preloads()
         self.schedule_render()
@@ -6039,7 +6424,12 @@ def move_excluded_files(excluded_files, input_dir):
     return [destination for _source, destination in moved]
 
 
-def choose_image_quality_overview(ims_files, input_dir, progress=None):
+def choose_image_quality_overview(
+    ims_files,
+    input_dir,
+    progress=None,
+    on_initial_previews_ready=None,
+):
     """Review the series, apply confirmed exclusions, and return included files."""
     if progress is not None:
         progress.update(
@@ -6048,7 +6438,11 @@ def choose_image_quality_overview(ims_files, input_dir, progress=None):
         )
         progress.close()
 
-    review = ImageQualityOverviewWindow(ims_files, input_dir=input_dir).run()
+    review = ImageQualityOverviewWindow(
+        ims_files,
+        input_dir=input_dir,
+        on_initial_previews_ready=on_initial_previews_ready,
+    ).run()
     if review is None:
         return None
 
@@ -12291,7 +12685,13 @@ def process_single_ims_file(
 
 
 
-def run_workflow(progress=None, use_quality_review=True):
+def run_workflow(
+    progress=None,
+    use_quality_review=True,
+    preselected_ims_files=None,
+    preloaded_models=None,
+    quality_review_completed=False,
+):
     if progress is not None:
         progress.update(
             "Checking the selected folders...",
@@ -12307,8 +12707,10 @@ def run_workflow(progress=None, use_quality_review=True):
         exist_ok=True,
     )
 
-    ims_files = sorted(
-        IMS_INPUT_DIR.glob("*.ims")
+    ims_files = (
+        sorted(IMS_INPUT_DIR.glob("*.ims"))
+        if preselected_ims_files is None
+        else [Path(path) for path in preselected_ims_files]
     )
     configured_donor_resolved = SCHEMA_DONOR_IMS.resolve()
     ims_files = [
@@ -12353,6 +12755,14 @@ def run_workflow(progress=None, use_quality_review=True):
                     f"{len(ims_files)} file(s) passed image-quality review. "
                     "The output template and Cellpose model will be checked next."
                 ),
+                heading="PREPARING CELL COUNTING",
+            )
+    elif quality_review_completed:
+        print("Image-quality review completed before workflow initialization.")
+        if progress is not None:
+            progress.update(
+                "Preparing the selected IMS files...",
+                f"Using {len(ims_files)} file(s) accepted during image QC.",
                 heading="PREPARING CELL COUNTING",
             )
     else:
@@ -12441,7 +12851,15 @@ def run_workflow(progress=None, use_quality_review=True):
             "(all spots will share the stack midpoint Z)"
         )
 
-    if progress is not None:
+    if preloaded_models is not None:
+        loaded_models = preloaded_models
+        if progress is not None:
+            progress.update(
+                "Cellpose is ready.",
+                "The model was loaded in the background during image QC.",
+                heading="PREPARING CELL COUNTING",
+            )
+    elif progress is not None:
         loaded_models = progress.run_task(
             lambda: initialize_models(device, progress=progress)
         )
@@ -12684,6 +13102,102 @@ def _load_heavy_dependencies():
     transforms = transforms_module
 
 
+def _load_qc_dependencies():
+    """Load only the numerical and HDF5 libraries required by image QC."""
+    global np, h5py
+
+    import numpy as np_module
+    import h5py as h5py_module
+
+    np = np_module
+    h5py = h5py_module
+
+
+def _start_daemon_preparation(function):
+    from concurrent.futures import Future
+
+    future = Future()
+
+    def worker():
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            future.set_result(function())
+        except BaseException as exc:
+            future.set_exception(exc)
+
+    threading.Thread(
+        target=worker,
+        name="neurodot_qc_preparation",
+        daemon=True,
+    ).start()
+    return future
+
+
+def _prepare_workflow_and_model():
+    _load_heavy_dependencies()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return initialize_models(device, progress=None)
+
+
+def _run_quality_review_first():
+    _load_qc_dependencies()
+    IMS_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ims_files = sorted(IMS_INPUT_DIR.glob("*.ims"))
+    donor = SCHEMA_DONOR_IMS.resolve()
+    ims_files = [path for path in ims_files if path.resolve() != donor]
+
+    if not ims_files:
+        from tkinter import messagebox
+
+        messagebox.showinfo(
+            "No IMS files found",
+            f"Add .ims files to:\n\n{IMS_INPUT_DIR.resolve()}",
+        )
+        return None
+
+    preparation = {"future": None}
+
+    def start_preparation():
+        if preparation["future"] is None:
+            preparation["future"] = _start_daemon_preparation(
+                _prepare_workflow_and_model
+            )
+
+    selected_files = choose_image_quality_overview(
+        ims_files,
+        input_dir=IMS_INPUT_DIR,
+        on_initial_previews_ready=start_preparation,
+    )
+    if selected_files is None:
+        return None
+
+    start_preparation()
+    future = preparation["future"]
+    progress = ProgressWindow()
+    progress.show(
+        status="Preparing Cellpose...",
+        detail="Finishing the background preparation started during image QC.",
+        heading="PREPARING CELL COUNTING",
+    )
+    try:
+        loaded_models = (
+            future.result()
+            if future.done()
+            else progress.run_task(future.result)
+        )
+        return run_workflow(
+            progress=progress,
+            use_quality_review=False,
+            preselected_ims_files=selected_files,
+            preloaded_models=loaded_models,
+            quality_review_completed=True,
+        )
+    except Exception:
+        progress.close()
+        raise
+
+
 def main():
     """Collect startup settings and run the complete workflow."""
     startup = choose_startup_settings()
@@ -12692,6 +13206,9 @@ def main():
 
     use_quality_review = bool(startup.pop("use_quality_review", True))
     apply_startup_settings(**startup)
+
+    if use_quality_review:
+        return _run_quality_review_first()
 
     progress = ProgressWindow()
     progress.show(
