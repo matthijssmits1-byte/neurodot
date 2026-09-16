@@ -59,6 +59,31 @@ def suggest_exposure_from_mip(mip):
     return black, white, slider_max
 
 
+def suggest_setup_preview_white(mip):
+    """Return a bright, robust display-only white point in the 200..400 range."""
+    values = np.asarray(mip, dtype=np.float32)
+    values = values[np.isfinite(values)]
+
+    if values.size == 0:
+        return float(SETUP_PREVIEW_WHITE_MIN)
+
+    if values.size > EXPOSURE_HISTOGRAM_SAMPLE_PIXELS:
+        step = max(1, values.size // EXPOSURE_HISTOGRAM_SAMPLE_PIXELS)
+        values = values[::step][:EXPOSURE_HISTOGRAM_SAMPLE_PIXELS]
+
+    robust_white = float(
+        np.percentile(values, SETUP_PREVIEW_WHITE_PERCENTILE)
+    )
+    if not np.isfinite(robust_white):
+        robust_white = float(SETUP_PREVIEW_WHITE_MIN)
+
+    return float(np.clip(
+        robust_white,
+        SETUP_PREVIEW_WHITE_MIN,
+        SETUP_PREVIEW_WHITE_MAX,
+    ))
+
+
 # =============================================================================
 # CELLPPOSE — NORMALIZATION EXPLICITLY DISABLED
 # =============================================================================

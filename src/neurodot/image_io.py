@@ -549,5 +549,85 @@ def read_mip_for_file_channel(ims_path, logical_channel):
         return np.asarray(mip)
 
 
+def _choose_qc_resolution_level(level_shapes_zyx, logical_shape_zyx, target_size):
+    """Choose the smallest Imaris pyramid level that remains at least target size."""
+    if not level_shapes_zyx:
+        raise RuntimeError("No Imaris resolution levels are available.")
+
+    target_size = max(1, int(target_size))
+    level0_shape = level_shapes_zyx[min(level_shapes_zyx)]
+    logical_z0, logical_y0, logical_x0 = (int(value) for value in logical_shape_zyx)
+    storage_z0, storage_y0, storage_x0 = (int(value) for value in level0_shape)
+
+    candidates = []
+    for level, storage_shape in level_shapes_zyx.items():
+        storage_z, storage_y, storage_x = (int(value) for value in storage_shape)
+        logical_shape = (
+            max(1, min(storage_z, int(math.ceil(logical_z0 * storage_z / storage_z0)))),
+            max(1, min(storage_y, int(math.ceil(logical_y0 * storage_y / storage_y0)))),
+            max(1, min(storage_x, int(math.ceil(logical_x0 * storage_x / storage_x0)))),
+        )
+        max_xy = max(logical_shape[1], logical_shape[2])
+        candidates.append((int(level), logical_shape, max_xy))
+
+    large_enough = [candidate for candidate in candidates if candidate[2] >= target_size]
+    if large_enough:
+        return min(large_enough, key=lambda candidate: (candidate[2], candidate[0]))[:2]
+    return max(candidates, key=lambda candidate: (candidate[2], -candidate[0]))[:2]
+
+
+def read_qc_mip_for_file_channel(ims_path, logical_channel, target_size=400):
+    """Read a fast, aspect-preserving QC MIP from the Imaris image pyramid.
+
+    Unlike the main GUI and Cellpose readers, this function deliberately uses
+    a reduced Imaris resolution level. It chooses the smallest stored level
+    that is still at least ``target_size`` pixels along its longest logical XY
+    axis, avoiding both a full level-0 read and unnecessary upsampling.
+    """
+    with h5py.File(ims_path, "r") as h5:
+        mapping = map_channels(h5, verbose=False)
+        if logical_channel not in mapping:
+            return None
+
+        channel_index = int(mapping[logical_channel])
+        timepoint_path = "TimePoint 0"
+        dataset_group = h5.get("DataSet")
+        if dataset_group is None:
+            raise RuntimeError("DataSet is missing.")
+
+        level_paths = {}
+        level_shapes = {}
+        for level_name in dataset_group.keys():
+            match = re.fullmatch(r"ResolutionLevel\s+(\d+)", str(level_name))
+            if match is None:
+                continue
+            level = int(match.group(1))
+            data_path = (
+                f"DataSet/{level_name}/{timepoint_path}/"
+                f"Channel {channel_index}/Data"
+            )
+            if data_path not in h5:
+                continue
+            level_paths[level] = data_path
+            level_shapes[level] = tuple(int(value) for value in h5[data_path].shape)
+
+        if not level_paths:
+            raise RuntimeError(
+                f"No pyramid data found for physical Channel {channel_index}."
+            )
+
+        logical_shape = get_imaris_logical_shape_zyx(h5)
+        level, level_logical_shape = _choose_qc_resolution_level(
+            level_shapes,
+            logical_shape,
+            target_size,
+        )
+        logical_z, logical_y, logical_x = level_logical_shape
+        volume = np.asarray(
+            h5[level_paths[level]][:logical_z, :logical_y, :logical_x]
+        )
+        return np.asarray(np.max(volume, axis=0))
+
+
 
 __all__ = [name for name in globals() if not name.startswith("__")]

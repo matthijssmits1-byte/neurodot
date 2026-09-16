@@ -19,7 +19,6 @@ dependencies = [
 
 [project.optional-dependencies]
 video = ["opencv-python>=4.10"]
-build = ["pyinstaller>=6.0"]
 test = ["pytest>=8.0"]
 
 [project.scripts]

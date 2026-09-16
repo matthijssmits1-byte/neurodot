@@ -1,4 +1,4 @@
-"""Application configuration and stable defaults inherited from Neurodot v21."""
+"""Application configuration and stable defaults."""
 from pathlib import Path
 import math
 import warnings
@@ -15,8 +15,8 @@ from .paths import (
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-IMS_INPUT_DIR = RUNTIME_DATA_ROOT / "ims_to_inject"
-OUTPUT_SCENE_DIR = RUNTIME_DATA_ROOT / "exported_scenes"
+IMS_INPUT_DIR = RUNTIME_DATA_ROOT / "data" / "input"
+OUTPUT_SCENE_DIR = RUNTIME_DATA_ROOT / "data" / "output"
 
 # Whole, known-good Imaris donor containing all eight Spot groups:
 #   Points0=g, Points1=b, Points2=r, Points3=405,
@@ -35,7 +35,7 @@ SCHEMA_DONOR_IMS = resolve_resource(
 # Leave CELLPOSE_MODEL_PATH empty to use Cellpose's built-in/native cpsam_v2.
 # To use a local model file instead, set the full or relative path, e.g.:
 #   CELLPOSE_MODEL_PATH = r"./models/cpsam_v2"
-#   CELLPOSE_MODEL_PATH = r"C:\cell_counting_automation\models\cpsam_v2"
+#   CELLPOSE_MODEL_PATH = r"D:\models\cpsam_v2"
 #
 # The selected model is loaded once and shared across all fluorescence channels.
 CELLPOSE_MODEL_PATH = str(
@@ -156,7 +156,7 @@ LANDMARK_LABEL_FONT_FRACTION = 0.011
 LANDMARK_LABEL_GAP_PX = 5
 
 # Per-channel, series-wide anatomical subregion selection. "whole" preserves
-# v18 behavior for that channel.
+# established behavior for that channel.
 # Dorsal and ventral are evaluated along the directed bottom -> top midline,
 # so the choice remains anatomical rather than depending on screen rotation.
 COUNTING_REGION_MODES = ("whole", "dorsal", "ventral")
@@ -394,6 +394,13 @@ WINDOWED_MAX_INSTANCE_AREA_PX = None
 EXPOSURE_SETTINGS_JSON = OUTPUT_SCENE_DIR / "cellpose_window_settings.json"
 EXPOSURE_PREVIEW_MAX_WIDTH = 1600
 EXPOSURE_PREVIEW_MAX_HEIGHT = 1000
+
+# Temporary landmark/calibration and series-overview display. These values do
+# not overwrite the exposure ultimately used for counting or Imaris metadata.
+SETUP_PREVIEW_BLACK = 0.0
+SETUP_PREVIEW_WHITE_PERCENTILE = 99.0
+SETUP_PREVIEW_WHITE_MIN = 200.0
+SETUP_PREVIEW_WHITE_MAX = 400.0
 
 # GUI performance tuning for high-memory workstations.
 # Full-resolution MIPs are comparatively small next to the 3D source volumes,

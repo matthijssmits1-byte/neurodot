@@ -19,6 +19,7 @@ MODULE_ORDER = (
     "logging_setup.py",
     "startup_gui.py",
     "progress_gui.py",
+    "quality_review.py",
     "gui.py",
     "self_test.py",
     "workflow.py",
@@ -74,8 +75,8 @@ def prepare_module(module_name):
 
     if module_name == "workflow.py":
         prepared = prepared.replace(
-            "def main(progress=None):",
-            "def run_workflow(progress=None):",
+            "def main(progress=None, use_quality_review=True):",
+            "def run_workflow(progress=None, use_quality_review=True):",
             1,
         )
 
@@ -138,6 +139,7 @@ def main():
     if startup is None:
         return None
 
+    use_quality_review = bool(startup.pop("use_quality_review", True))
     apply_startup_settings(**startup)
 
     progress = ProgressWindow()
@@ -146,8 +148,11 @@ def main():
         detail="Preparing Cellpose and the IMS processing libraries.",
     )
     try:
-        _load_heavy_dependencies()
-        return run_workflow(progress=progress)
+        progress.run_task(_load_heavy_dependencies)
+        return run_workflow(
+            progress=progress,
+            use_quality_review=use_quality_review,
+        )
     except Exception:
         progress.close()
         raise
@@ -176,7 +181,7 @@ if __name__ == "__main__":
     monolith = "".join(sections)
     if re.search(r"^\s*from\s+\.", monolith, flags=re.MULTILINE):
         raise RuntimeError("Generated monolith still contains a relative import.")
-    if "def run_workflow(progress=None):" not in monolith:
+    if "def run_workflow(progress=None, use_quality_review=True):" not in monolith:
         raise RuntimeError("Workflow entry point was not renamed.")
 
     return monolith

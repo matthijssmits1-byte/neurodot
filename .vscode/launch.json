@@ -16,6 +16,14 @@
             "program": "${workspaceFolder}/Neurodot.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Neurodot (quality overview only)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/run_quality_overview.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
         }
     ]
 }

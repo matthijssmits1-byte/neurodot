@@ -21,7 +21,7 @@ class MonolithTests(unittest.TestCase):
         self.assertNotIn("from .", source)
         self.assertIn('__version__ = "1.0.0"', source)
 
-    def test_vscode_can_launch_both_versions(self):
+    def test_vscode_has_full_single_file_and_overview_launches(self):
         launch = json.loads(
             (PROJECT_ROOT / ".vscode" / "launch.json").read_text(encoding="utf-8")
         )
@@ -31,6 +31,10 @@ class MonolithTests(unittest.TestCase):
         }
         self.assertIn("${workspaceFolder}/run_neurodot.py", programs)
         self.assertIn("${workspaceFolder}/Neurodot.py", programs)
+        self.assertIn(
+            "${workspaceFolder}/tools/run_quality_overview.py",
+            programs,
+        )
 
 
 if __name__ == "__main__":

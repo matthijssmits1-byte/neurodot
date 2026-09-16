@@ -1834,8 +1834,8 @@ class ExposureWindowGUI:
         - on the first (g) channel while drawing landmarks for an image
         - on any channel while an exposure calibration picker is active
 
-        This does NOT change the saved exposure semantics. It only forces the
-        preview black point to zero so the tissue outline stays visible.
+        This does NOT change the saved exposure semantics. It uses black zero
+        and an adaptive bright white point so the tissue outline stays visible.
         """
         if self.exposure_pick_mode is not None:
             return True
@@ -1851,6 +1851,7 @@ class ExposureWindowGUI:
 
     def _preview_black_white(
         self,
+        mip=None,
     ):
         slider_black = float(
             self.black_var.get()
@@ -1860,21 +1861,13 @@ class ExposureWindowGUI:
         )
 
         if self._use_forced_black_preview_mode():
-            baseline_white = float(
-                self.channel_baseline[
-                    self.current_channel
-                ].get(
-                    "white",
-                    1.0,
-                )
-            )
+            if mip is None or mip is _MIP_LOADING:
+                preview_white = float(SETUP_PREVIEW_WHITE_MIN)
+            else:
+                preview_white = suggest_setup_preview_white(mip)
             return (
-                0.0,
-                max(
-                    slider_white,
-                    baseline_white,
-                    1.0,
-                ),
+                float(SETUP_PREVIEW_BLACK),
+                preview_white,
                 True,
                 slider_black,
                 slider_white,
@@ -1968,8 +1961,8 @@ class ExposureWindowGUI:
                     var.set(channel in enabled_set)
             self._update_channel_count_button_styles()
 
-        # v19 stores one series-wide choice per channel. Also accept the early
-        # v19 single-string form by applying that choice to every channel.
+        # Current settings store one series-wide choice per channel. Also
+        # accept the early single-string form for backward compatibility.
         saved_counting_regions = payload.get(
             "counting_regions",
             payload.get("counting_region", DEFAULT_COUNTING_REGION),
@@ -2237,14 +2230,17 @@ class ExposureWindowGUI:
         if mode == "background":
             message = (
                 f"BACKGROUND PICK ACTIVE — click a background region. "
-                f"Preview black is temporarily forced to 0 for visibility. "
+                f"Preview temporarily uses black=0 and an adaptive "
+                f"white={SETUP_PREVIEW_WHITE_MIN:.0f}-"
+                f"{SETUP_PREVIEW_WHITE_MAX:.0f} for visibility. "
                 f"Brightest raw pixel inside the {EXPOSURE_PICK_RADIUS_PX}px "
                 f"radius circle becomes the saved black point."
             )
         else:
             message = (
                 f"WEAKEST POSITIVE PICK ACTIVE — click a weak true-positive "
-                f"while preview black is temporarily 0. Brightest raw pixel "
+                f"while preview uses black=0 and an adaptive bright white. "
+                f"Brightest raw pixel "
                 f"inside the {EXPOSURE_PICK_RADIUS_PX}px radius circle plus "
                 f"headroom becomes the saved white point."
             )
@@ -2644,7 +2640,7 @@ class ExposureWindowGUI:
         self.exposure_pick_status_label.configure(
             text=(
                 "Landmark drawing mode: on the first channel (g), preview black "
-                "is temporarily forced to 0 so the tissue outline remains visible."
+                "is temporarily 0 and preview white adapts within 200-400."
             )
         )
         self.refresh_preview()
@@ -2684,7 +2680,7 @@ class ExposureWindowGUI:
         self.exposure_pick_status_label.configure(
             text=(
                 "Landmark drawing mode: on the first channel (g), preview black "
-                "is temporarily forced to 0 so the tissue outline remains visible."
+                "is temporarily 0 and preview white adapts within 200-400."
             )
         )
         self.refresh_preview()
@@ -4376,7 +4372,7 @@ class ExposureWindowGUI:
             using_forced_black_preview,
             slider_black,
             slider_white,
-        ) = self._preview_black_white()
+        ) = self._preview_black_white(mip)
 
         if effective[
             "source"
@@ -4805,7 +4801,7 @@ class ExposureWindowGUI:
             _using_forced_black_preview,
             _slider_black,
             _slider_white,
-        ) = self._preview_black_white()
+        ) = self._preview_black_white(mip)
 
         if white <= black:
             self.messagebox.showerror(

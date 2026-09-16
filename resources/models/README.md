@@ -1,8 +1,6 @@
 # Cellpose model
 
-The self-contained release includes `cpsam_v2` in this directory.
+Source development uses Cellpose's built-in `cpsam_v2` model by default.
 
-The former `cpsam_v2_sweeney` file and Cellpose's cached `cpsam_v2` were
-verified to have the same SHA-256 hash, so the release stores only one copy.
-Source development can still fall back to `../models/cpsam_v2_sweeney` when
-the packaged resource is absent.
+To make an authorized local model the startup default, place it here as
+`cpsam_v2`. Model weights are deliberately excluded from source control.

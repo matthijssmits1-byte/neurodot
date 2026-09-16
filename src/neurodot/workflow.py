@@ -5,6 +5,7 @@ from .imaris_io import *
 from .image_io import *
 from .detection import *
 from .geometry import *
+from .quality_review import *
 from .gui import *
 # =============================================================================
 # BATCH INFERENCE
@@ -724,7 +725,7 @@ def process_single_ims_file(
 
 
 
-def main(progress=None):
+def main(progress=None, use_quality_review=True):
     if progress is not None:
         progress.update(
             "Checking the selected folders...",
@@ -740,28 +741,14 @@ def main(progress=None):
         exist_ok=True,
     )
 
-    if not SCHEMA_DONOR_IMS.exists():
-        raise FileNotFoundError(
-            "Schema donor not found:\n"
-            f"  {SCHEMA_DONOR_IMS.resolve()}\n"
-            "Use the whole manually annotated .ims file containing "
-            "valid g, b, r and 405 groups."
-        )
-
     ims_files = sorted(
         IMS_INPUT_DIR.glob("*.ims")
     )
-
-    schema_donor_ims = resolve_schema_donor(
-        SCHEMA_DONOR_IMS
-    )
-
-    donor_resolved = schema_donor_ims.resolve()
-
+    configured_donor_resolved = SCHEMA_DONOR_IMS.resolve()
     ims_files = [
         p
         for p in ims_files
-        if p.resolve() != donor_resolved
+        if p.resolve() != configured_donor_resolved
     ]
 
     if not ims_files:
@@ -776,6 +763,56 @@ def main(progress=None):
                 output_dir=IMS_INPUT_DIR,
             )
         return
+
+    if use_quality_review:
+        had_progress_window = progress is not None
+        ims_files = choose_image_quality_overview(
+            ims_files,
+            input_dir=IMS_INPUT_DIR,
+            progress=progress,
+        )
+        if ims_files is None:
+            print(
+                "Image-quality review cancelled by the user; "
+                "no IMS files were moved or processed."
+            )
+            return None
+
+        if had_progress_window:
+            from .progress_gui import ProgressWindow
+
+            progress = ProgressWindow()
+            progress.show(
+                status="Preparing the selected IMS files...",
+                detail=(
+                    f"{len(ims_files)} file(s) passed image-quality review. "
+                    "The output template and Cellpose model will be checked next."
+                ),
+                heading="PREPARING CELL COUNTING",
+            )
+    else:
+        print("Image-quality review skipped by the user.")
+        if progress is not None:
+            progress.update(
+                "Preparing the IMS files...",
+                (
+                    f"Image QC was skipped. Checking the output template and "
+                    f"Cellpose model for {len(ims_files)} file(s)."
+                ),
+                heading="PREPARING CELL COUNTING",
+            )
+
+    if not SCHEMA_DONOR_IMS.exists():
+        raise FileNotFoundError(
+            "Schema donor not found:\n"
+            f"  {SCHEMA_DONOR_IMS.resolve()}\n"
+            "Use the whole manually annotated .ims file containing "
+            "valid g, b, r and 405 groups."
+        )
+
+    schema_donor_ims = resolve_schema_donor(
+        SCHEMA_DONOR_IMS
+    )
 
     device = torch.device(
         "cuda"

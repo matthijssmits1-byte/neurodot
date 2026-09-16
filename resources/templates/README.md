@@ -1,7 +1,7 @@
 # Imaris schema template
 
-For a self-contained release, place `donor_1_point_each_with_to.ims` here.
+Place an authorized compatible donor at
+`donor_1_point_each_with_to.ims` for local development and testing.
 
-During development, Neurodot falls back to the existing donor in
-`../start_scene/`.
-
+The donor is deliberately excluded from source control. Confirm its ownership,
+redistribution terms, and embedded acquisition metadata before sharing it.

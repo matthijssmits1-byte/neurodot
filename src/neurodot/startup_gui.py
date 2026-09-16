@@ -62,7 +62,11 @@ class StartupWindow:
         )
         self.model_var = tk.StringVar(value=str(CELLPOSE_MODEL_PATH))
         self.model_mode = tk.StringVar(
-            value="local" if CELLPOSE_MODEL_PATH else "builtin"
+            value=(
+                "local"
+                if CELLPOSE_MODEL_PATH and Path(CELLPOSE_MODEL_PATH).is_file()
+                else "builtin"
+            )
         )
         self.preview_var = tk.StringVar()
 
@@ -112,7 +116,7 @@ class StartupWindow:
 
         tk.Label(
             form,
-            text="Choose the files and model for this run.",
+            text="Choose the files and model for this run, then select how to begin.",
             bg=GUI_BG,
             fg=GUI_MUTED_FG,
             font=("Segoe UI", 9),
@@ -206,12 +210,25 @@ class StartupWindow:
 
         actions = tk.Frame(outer, bg=GUI_BG)
         actions.pack(fill="x")
+        tk.Label(
+            actions,
+            text="Image QC opens the overview first. Continue goes directly to setup.",
+            bg=GUI_BG,
+            fg=GUI_MUTED_FG,
+            font=("Segoe UI", 8),
+        ).pack(side="left")
         self._button(actions, "Cancel", self._cancel, width=11).pack(side="right")
         self._button(
             actions,
             "Continue",
-            self._continue,
+            lambda: self._continue(use_quality_review=False),
             width=14,
+        ).pack(side="right", padx=(0, 8))
+        self._button(
+            actions,
+            "Continue with image QC",
+            lambda: self._continue(use_quality_review=True),
+            width=23,
             accent=True,
         ).pack(side="right", padx=(0, 8))
 
@@ -369,7 +386,7 @@ class StartupWindow:
         tag = self.tag_var.get()
         self.preview_var.set(f"Example: image{tag}_L.ims  /  image{tag}_R.ims")
 
-    def _continue(self):
+    def _continue(self, use_quality_review=True):
         input_text = self.input_var.get().strip()
         output_text = self.output_var.get().strip()
         tag = self.tag_var.get().strip()
@@ -425,6 +442,7 @@ class StartupWindow:
             "output_file_tag": tag,
             "model_path": model_path,
             "spot_diameter_um": spot_diameter_um,
+            "use_quality_review": bool(use_quality_review),
         }
         self.root.destroy()
 

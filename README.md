@@ -1,194 +1,97 @@
 # Neurodot
 
-Neurodot is a desktop application for guided, reproducible cell detection in
-multichannel Imaris microscopy images. It combines Cellpose segmentation with
-user-defined landmarks, exposure calibration, channel selection, anatomical
-regions, and inclusive or exclusion ROIs, then writes counted center points
-and display settings back into Imaris-compatible output files.
+Neurodot is a Windows desktop application for guided, reproducible cell
+detection in multichannel Imaris microscopy images. It combines Cellpose with
+operator-selected landmarks, exposure calibration, channel and anatomical-area
+selection, and inclusive or exclusion ROIs. Counted center points and display
+settings are written to Imaris-compatible output files.
 
-This repository contains source code and documentation only. It deliberately
-does not distribute microscopy data, the custom Cellpose model, the Imaris
-schema donor, portable builds, or installers. Those large or potentially
-restricted files must only be distributed after their ownership, metadata,
-and redistribution terms have been reviewed.
-
-`Neurodot.py` is an optional self-contained single-file copy generated from
-the current modular implementation. The modules under `src/neurodot/` remain
-the maintained source of truth. Regenerate it after modular changes with:
-
-```powershell
-python .\tools\build_monolith.py
-```
-
-## Run without Python
-
-Distribute the entire `dist/Neurodot/` folder and start `Neurodot.exe`. Do not
-copy only the executable; its `_internal` folder is part of the application.
-The safest transfer method is to zip the complete `Neurodot` folder, copy that
-single archive, and extract it on the destination computer. Running the EXE
-directly from inside a zip archive is not supported.
-
-For a portable release, copy `Neurodot-portable.zip`, extract it fully,
-open the extracted `Neurodot` folder, and run `Neurodot.exe`. Its SHA-256 is
-recorded in `Neurodot-portable.sha256`; compare it after transfer with:
-
-```powershell
-Get-FileHash .\Neurodot-portable.zip -Algorithm SHA256
-```
-
-The portable release does not require Python, Conda, Cellpose, PyTorch, or the
-model to be installed separately. GPU acceleration still requires a compatible
-NVIDIA GPU and driver; Cellpose can fall back to CPU when CUDA is unavailable.
-
-User input and output defaults are created under `Documents/Neurodot/`. Runtime
-logs are written to `%LOCALAPPDATA%/Neurodot/logs/neurodot.log`.
-
-For users who prefer a conventional Windows installation, the generated
-`installer` folder contains `Neurodot-Setup.exe` and its numbered data
-files. Keep that complete folder together and follow the
-[installer deployment guide](docs/INSTALLER_DEPLOYMENT.md).
+This is the source-development project. It does not contain an executable,
+portable build, installer, trained model, Imaris donor, or microscopy data.
 
 ## Open in VS Code
 
-Open `Neurodot.code-workspace`, then choose the **Neurodot (modular)** launch
-configuration and press F5. The workspace is configured to use the existing
-`cellpose_imaris` Conda environment.
+Open `Neurodot.code-workspace`, select a Python 3.12 environment containing the
+project dependencies, and choose a launch target:
 
-To run the single-file copy, select **Neurodot (single file)** from the Run
-and Debug menu and press F5.
+- **Neurodot (modular)** runs the complete application from `src/neurodot/`.
+- **Neurodot (quality overview only)** opens the series overview without moving
+  or processing files, making UI development fast and safe.
+- **Neurodot (single file)** runs the automatically generated `Neurodot.py`
+  backup copy.
 
-You can also start it from the project directory:
+The modular package is the only source of truth. Do not manually edit
+`Neurodot.py`.
+
+## Environment setup
+
+From the project directory:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[test]"
+```
+
+Run the application with:
 
 ```powershell
 python run_neurodot.py
 ```
 
-When running from source, input `.ims` files belong in `ims_to_inject/` and
-generated scenes are written to `exported_scenes/`.
+Cellpose's built-in model is selected automatically when no authorized local
+model exists. Imaris output creation requires a compatible authorized donor at
+`resources/templates/donor_1_point_each_with_to.ims`.
 
-At startup, a small preflight window lets the user override both folders, the
-output filename tag, Imaris Spot diameter, and the Cellpose model for that run.
-The local trained model remains the default; the built-in `cpsam_v2` model is
-also available. Spot diameter changes output metadata and center-point width,
-not Cellpose detection.
+## Runtime folders
+
+- Put source `.ims` files in `data/input/`, or select another input folder in
+  the startup window.
+- Generated files go to `data/output/`, or the selected output folder.
+- Files excluded during image-quality review move to
+  `<input>/_excluded_from_analysis/` after confirmation. A manifest records the
+  original and new paths, and name collisions never overwrite an existing file.
+
+Input data, output data, donor files, model weights, JSON settings, and logs are
+excluded from source control.
+
+## Development cycle
+
+1. Edit modules under `src/neurodot/`.
+2. Run the relevant VS Code launch target.
+3. Run the test suite:
+
+   ```powershell
+   python -m unittest discover -s tests -v
+   ```
+
+4. Regenerate the optional single-file copy:
+
+   ```powershell
+   python tools/build_monolith.py
+   ```
+
+5. Run the tests again; they verify that the generated file matches the modules.
+
+Executable and portable packaging are intentionally outside this development
+cycle and should only be added for a validated release.
 
 ## Source layout
 
-- `config.py` contains user-adjustable settings and defaults.
-- `imaris_io.py` owns donor discovery, HDF5 scene writing, and validation.
-  Exported files also store each channel's effective GUI black/white exposure
-  in Imaris `ColorRange` metadata so those display ranges reopen in Imaris.
-- `image_io.py` owns channel mapping, logical image dimensions, and MIP reads.
-- `detection.py` owns exposure windowing and Cellpose execution.
-- `geometry.py` owns landmarks, hemispheres, counting rectangles, custom ROIs,
-  inclusive/exclusion ROI selection, dorsal/ventral selection, and placeholder
-  geometry.
-- `gui.py` contains the exposure, landmark, channel, and ROI interface.
-  Work-in-progress JSON can be saved without closing; completed exposure
-  selections retain their true preview, landmark corrections are one-shot, and
-  placement uses a native white crosshair without Canvas-motion redraws.
-  Cellpose previews obey the final rectangle, anatomical-region, and custom-ROI
-  filters. Closing offers to save partial work and exits without error dialogs.
-- `startup_gui.py` collects run-specific paths, filename tag, Spot diameter,
-  and model choice.
-- `progress_gui.py` reports IMS loading, Cellpose processing, and output status
-  when the portable application has no console.
-- `workflow.py` coordinates batch inference and output creation.
-- `paths.py` keeps project, resource, and eventual packaged-app paths stable.
-
-Dependencies flow in one direction:
-
 ```text
-config -> Imaris/image I/O -> detection -> geometry -> GUI -> workflow
+src/neurodot/
+  config.py          Settings and runtime defaults
+  startup_gui.py     Folder, tag, model, and Spot-size selection
+  quality_review.py  Zoomable series overview and recoverable exclusions
+  image_io.py        Imaris image and MIP reading
+  detection.py       Exposure processing and Cellpose execution
+  geometry.py        Landmarks, hemispheres, regions, and ROIs
+  gui.py             Main landmark, exposure, and preview interface
+  imaris_io.py       Imaris scene and metadata writing
+  workflow.py        End-to-end orchestration
 ```
 
-The GUI remains a large module because splitting the class itself is a second,
-higher-risk refactor. Its computational behavior has already been moved behind
-the lower-level modules, which is the useful stability boundary.
-
-## Handover documentation
-
-- [Handover index](docs/HANDOVER_INDEX.md) lists exactly what to give IT and
-  operators, and what to retain with a validated release.
-- [Neurodot in simple terms](docs/ELI5_OVERVIEW.md) explains the complete
-  pipeline for non-developers.
-- [Operator quick start](docs/OPERATOR_QUICK_START.md) is the short day-to-day
-  procedure for scientists.
-- [Portable VM deployment guide](docs/DEPLOYMENT_GUIDE.md) covers installation,
-  GPU requirements, file safety, validation, support, and rollback.
-- [Windows installer deployment](docs/INSTALLER_DEPLOYMENT.md) covers the
-  conventional Start-menu installation and uninstallation workflow.
-- [Release acceptance checklist](docs/RELEASE_ACCEPTANCE_CHECKLIST.md) gives IT
-  and scientific reviewers a repeatable sign-off test.
-- The pipeline presentation is maintained separately because its source file
-  is large and may contain material that requires its own publication review.
-
-## Runtime resources
-
-The public source repository does not include the trained Cellpose model or
-Imaris donor scene. For an authorized local build, place the model at
-`resources/models/cpsam_v2` and a compatible donor at
-`resources/templates/donor_1_point_each_with_to.ims`. Do not publish either
-resource unless you have confirmed that redistribution is permitted and that
-the donor contains no sensitive acquisition metadata.
-
-Neurodot processes images locally; the authored source does not upload images
-or results to a remote service. Runtime logs can contain filenames and local
-paths, so review them before sharing.
-
-## Publication status
-
-No open-source licence has been selected yet. Until a licence is added, the
-source is publicly readable but no general permission to reuse, modify, or
-redistribute it is granted. Confirm code ownership and choose a licence before
-announcing the repository as open source.
-
-## Verification
-
-Run the lightweight regression tests with Python's built-in test runner:
-
-```powershell
-python -m unittest discover -s tests -v
-```
-
-The packaged executable also has a non-interactive diagnostic mode:
-
-```powershell
-.\dist\Neurodot\Neurodot.exe --self-test
-```
-
-It verifies imports, resources, donor structure, model loading, CUDA detection,
-and Imaris center-point size metadata, then writes
-`Documents/Neurodot/self_test.json`.
-
-Before replacing v21 in production, process the same representative `.ims`
-series with both versions and compare Spot counts, coordinates, landmarks,
-rotation metadata, placeholders, and Imaris editability.
-
-## Rebuilding the standalone release
-
-PyInstaller must be installed in the `cellpose_imaris` environment. From this
-project directory:
-
-```powershell
-.\packaging\build_portable.ps1
-.\packaging\verify_portable.ps1
-.\packaging\make_portable_zip.ps1
-```
-
-The PyInstaller specification deliberately bundles the CUDA and MinGW runtime
-DLLs required by this Conda environment. The resulting portable folder is
-about 6.6 GiB.
-
-The current executable is unsigned. Windows SmartScreen may therefore warn on
-other computers until it is signed with a trusted code-signing certificate.
-
-After building and verifying the portable folder, create the Windows installer
-with:
-
-```powershell
-.\packaging\build_installer.ps1
-```
-
-This requires Inno Setup 6 on the build machine only. Target machines do not
-need Inno Setup or any Python tooling.
+See [Architecture](docs/ARCHITECTURE.md) for the data flow and maintenance
+rules. Neurodot is research software; operators must validate its output for
+their imaging protocol and model.

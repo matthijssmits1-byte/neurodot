@@ -12,6 +12,7 @@ def main():
     if startup is None:
         return None
 
+    use_quality_review = bool(startup.pop("use_quality_review", True))
     config.apply_startup_settings(**startup)
 
     from .progress_gui import ProgressWindow
@@ -25,9 +26,20 @@ def main():
     # Import only after applying the selection. The behavior-preserving
     # modules intentionally snapshot config constants at import time.
     try:
-        from .workflow import main as run
+        def load_workflow():
+            from .workflow import main as run_workflow
 
-        return run(progress=progress)
+            return run_workflow
+
+        # Importing Torch, Cellpose, SciPy, and the workflow can take several
+        # seconds. Keep that work off Tk's thread so the indeterminate bar and
+        # window continue repainting during startup.
+        run = progress.run_task(load_workflow)
+
+        return run(
+            progress=progress,
+            use_quality_review=use_quality_review,
+        )
     except Exception:
         progress.close()
         raise

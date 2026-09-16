@@ -462,7 +462,7 @@ def filter_split_predictions_to_counting_rectangles(
             for channel in CHANNEL_PROCESSING_ORDER
         }
     elif isinstance(counting_regions, str):
-        # Backward compatibility with the early v19 single-region form.
+        # Backward compatibility with the early single-region settings form.
         region_by_channel = {
             channel: counting_regions
             for channel in CHANNEL_PROCESSING_ORDER

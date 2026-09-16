@@ -263,6 +263,10 @@ class ProgressWindow:
         if self.output_dir is not None:
             self.open_button.pack(side="left")
         self.close_button.pack(side="right")
+        # The window was initially sized while this row was empty. Recalculate
+        # after revealing the completion actions so wrapped paths cannot force
+        # the buttons below the fixed client area and clip them vertically.
+        self._centre_window()
         self.show()
         self.root.mainloop()
 

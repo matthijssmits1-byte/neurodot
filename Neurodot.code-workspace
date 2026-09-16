@@ -5,9 +5,9 @@
         }
     ],
     "settings": {
+        "python.terminal.activateEnvironment": true,
         "python.analysis.extraPaths": [
             "${workspaceFolder}/src"
         ]
     }
 }
-

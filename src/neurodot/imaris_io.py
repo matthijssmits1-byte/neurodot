@@ -1487,7 +1487,7 @@ def reset_imaris_camera_to_image(h5):
     fields in serialized Scene/Data and Scene8/Data.
     """
     # Imported locally to keep the Imaris writer independent of image reading
-    # at module-import time while preserving v21's final geometry definition.
+    # at module-import time while preserving the established geometry definition.
     from .image_io import get_image_geometry
 
     geo = get_image_geometry(h5, verbose=False)
